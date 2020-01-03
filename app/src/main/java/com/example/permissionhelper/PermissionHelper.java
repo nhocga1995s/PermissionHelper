@@ -17,52 +17,89 @@ import androidx.core.app.ActivityCompat;
 import com.example.permissionhelper.exception.PermissionNotDefined;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
-
 public final class PermissionHelper {
+
+    /**
+     * When you make a request by call {@link #requestPermission(int, List)},
+     * some permissions(1) in permission request list have been granted before.
+     * <p>
+     * By default, i will filter these request and treat it granted. So i don't need request it again.
+     * But when system show a dialog to user to let them grant permissions or not, they can open Setting app to turn
+     * permission in (1) off and then return to your app and grant the rest(You can know it by onStop call back).
+     * <p>
+     * When request finish, i also check permissions in (1) still granted or not.
+     * But when user turn it off, it is NG to continue request. By default i will return these permissions as not granted.
+     * <p>
+     * You can change default behavior to:
+     * - {@link #REQUEST}: Also request granted permissions.
+     * - {@link #REQUEST_AFTER}: After request finish, if permission in (1) was turn off by user, i will request it.
+     */
+    public enum GrantedBeforeBehavior {
+        REQUEST,
+        REQUEST_AFTER,
+        DEFAULT;
+
+        public boolean isRequest() {
+            return this.ordinal() == REQUEST.ordinal();
+        }
+
+        public boolean isRequestAfter() {
+            return this.ordinal() == REQUEST_AFTER.ordinal();
+        }
+
+        public boolean isDefault() {
+            return this.ordinal() == DEFAULT.ordinal();
+        }
+    }
 
     private static final String TAG = PermissionHelper.class.getSimpleName();
     private static final int INIT_SIZE = 10;
     private static final List<String> APP_PERMISSIONS = PermissionUtil.getAppPermissions();
+    public static final int DEFAULT_REQUEST_CODE = 0;
 
     /**
      * Contains permissions param
      */
-    private List<String> mPermissions;
+    private final List<String> mPermissions;
     /**
      * Contain permissions that was not grant
      */
-    private List<String> mPermissionsRequest;
+    private final List<String> mPermissionsRequest;
     /**
      * Contain permissions was granted
      */
-    private List<String> mPermissionsGranted;
+    private final List<String> mPermissionsGranted;
     /**
      * Contain permission was deny forever
      */
-    private List<String> mPermissionsDeniedForever;
+    private final List<String> mPermissionsDeniedForever;
     /**
      * Contain permission was denied
      */
-    private List<String> mPermissionsDenied;
+    private final List<String> mPermissionsDenied;
     private int mRequestCode;
 
-    private OnRationaleCallback mOnRationaleCallback;
-    private SimpleCallback mSimpleCallback;
-    private FullCallback mFullCallback;
+    // Call back
+    private RationaleCallback mRationale;
+    private ResultCallback mResult;
 
     // State
-    private boolean mIsWaitingContinue;
+    private boolean mIsWaiting;
+
+    // Behavior
+    private GrantedBeforeBehavior mGrantedBeforeBehavior;
 
     // todo: Implement for write setting and draw overlay permissions
 
-    /*   private static SimpleCallback sSimpleCallback4WriteSettings;
-       private static SimpleCallback sSimpleCallback4DrawOverlays;*/
-   /* @RequiresApi(api = Build.VERSION_CODES.M)
-    public static void requestWriteSettings(final SimpleCallback callback) {
+  /*     private static SimpleResultCallback sSimpleCallback4WriteSettings;
+       private static SimpleResultCallback sSimpleCallback4DrawOverlays;
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public static void requestWriteSettings(final SimpleResultCallback callback) {
         if (isGrantedWriteSettings()) {
             if (callback != null) callback.onGranted();
             return;
@@ -83,7 +120,7 @@ public final class PermissionHelper {
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public static void requestDrawOverlays(final SimpleCallback callback) {
+    public static void requestDrawOverlays(final SimpleResultCallback callback) {
         if (isGrantedDrawOverlays()) {
             if (callback != null) callback.onGranted();
             return;
@@ -102,52 +139,73 @@ public final class PermissionHelper {
         }
         activity.startActivityForResult(intent, requestCode);
     }*/
+
     private PermissionHelper() {
         mPermissions = new ArrayList<>(INIT_SIZE);
         mPermissionsRequest = new ArrayList<>(INIT_SIZE);
         mPermissionsGranted = new ArrayList<>(INIT_SIZE);
         mPermissionsDeniedForever = new ArrayList<>(INIT_SIZE);
         mPermissionsDenied = new ArrayList<>(INIT_SIZE);
-        mRequestCode = 0;
+        mRequestCode = DEFAULT_REQUEST_CODE;
     }
 
-    public static PermissionHelper getInstance() {
-        return Singleton.INSTANCE;
+    //region Getter, setter
+
+    public void setRationale(RationaleCallback rationale) {
+        this.mRationale = rationale;
     }
 
-    public void requestPermission(int requestCode, @NonNull final List<String> permissions, @Nullable final CallBackBuilder callBackBuilder) {
-        if (!Utils.isContain(APP_PERMISSIONS, permissions)) {
-            throw new PermissionNotDefined("Some permissions in " + permissions.toString() + " did not defined in manifest");
+    @Nullable
+    public RationaleCallback getRationale() {
+        return this.mRationale;
+    }
+
+    public void setResult(ResultCallback result) {
+        this.mResult = result;
+    }
+
+    @Nullable
+    public ResultCallback getResult() {
+        return this.mResult;
+    }
+
+    @NonNull
+    public GrantedBeforeBehavior getGrantedBeforeBehavior() {
+        return mGrantedBeforeBehavior;
+    }
+
+    public void setGrantedBeforeBehavior(@NonNull GrantedBeforeBehavior mGrantedBeforeBehavior) {
+        this.mGrantedBeforeBehavior = mGrantedBeforeBehavior;
+    }
+
+    //endregion
+
+    public void requestPermission(int requestCode, @NonNull final String permissions) {
+        requestPermission(requestCode, Collections.singletonList(permissions));
+    }
+
+    public void requestPermission(int requestCode, @NonNull final List<String> permissions) {
+        if (!Utils.isSubList(APP_PERMISSIONS, permissions)) {
+            throw new PermissionNotDefined("Some request permissions did not defined in manifest");
         } else {
             resetData();
         }
         mRequestCode = requestCode;
         mPermissions.addAll(permissions);
-
-        if (callBackBuilder != null) {
-            mOnRationaleCallback = callBackBuilder.mOnRationaleCallback;
-            mSimpleCallback = callBackBuilder.mSimpleCallback;
-            mFullCallback = callBackBuilder.mFullCallback;
-            if (mSimpleCallback != null && mFullCallback != null) {
-                mSimpleCallback = null;
-            }
-        }
         request();
     }
 
+    /**
+     * Delete old data and state
+     */
     private void resetData() {
         mPermissions.clear();
         mPermissionsRequest.clear();
         mPermissionsGranted.clear();
         mPermissionsDeniedForever.clear();
         mPermissionsDenied.clear();
-        mRequestCode = 0;
-
-        mOnRationaleCallback = null;
-        mSimpleCallback = null;
-        mFullCallback = null;
-
-        mIsWaitingContinue = false;
+        mRequestCode = DEFAULT_REQUEST_CODE;
+        mIsWaiting = false;
     }
 
     /**
@@ -161,7 +219,7 @@ public final class PermissionHelper {
             callback();
         } else {
             for (String permission : mPermissions) {
-                if (PermissionUtil.isPermissionGranted(permission)) {
+                if (PermissionUtil.isPermissionGranted(permission) && mGrantedBeforeBehavior.isRequest()) {
                     mPermissionsGranted.add(permission);
                 } else {
                     mPermissionsRequest.add(permission);
@@ -177,12 +235,12 @@ public final class PermissionHelper {
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     private void startPermissionActivity() {
-        PermissionActivity.start(App.getAppContext(), PermissionActivity.TYPE_RUNTIME);
+        PermissionActivity.start(App.context(), PermissionActivity.TYPE_RUNTIME);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     private void reStartPermissionActivity() {
-        if (mIsWaitingContinue) {
+        if (mIsWaiting) {
             startPermissionActivity();
         } else {
             // todo: Does multi instance make memory leak, when whe has PermissionActivity?
@@ -193,22 +251,22 @@ public final class PermissionHelper {
     @RequiresApi(api = Build.VERSION_CODES.M)
     private boolean needRationale(@NonNull final Activity activity) {
         boolean isRationale = false;
-        // If {@code mOnRationaleCallback} not null, caller want to has a callback of permissions that denied forever
-        if (mOnRationaleCallback != null) {
+        // If {@code mRationale} not null, caller want to has a callback of permissions that denied forever
+        if (mRationale != null) {
             if (PermissionUtil.hasPermissionDeniedForever(activity, mPermissionsRequest)) {
                 mPermissionsDeniedForever = PermissionUtil.getPermissionsDeniedForever(activity, mPermissionsRequest);
-                mOnRationaleCallback.rationale(mRequestCode, again -> {
+                mRationale.rationale(mRequestCode, again -> {
                     if (again) {
                         reStartPermissionActivity();
                     } else {
                         reCallback();
                     }
                 }, mPermissionsDeniedForever, mPermissions);
-                mIsWaitingContinue = true;
+                mIsWaiting = true;
                 isRationale = true;
             }
             // On next request, caller surely want to ignore denied permission, so we must reset this call back
-            mOnRationaleCallback = null;
+            mRationale = null;
         }
         return isRationale;
     }
@@ -232,15 +290,20 @@ public final class PermissionHelper {
      * Call back to caller
      */
     private void callback() {
-        if (mSimpleCallback != null) {
-            simpleCallBack();
-        } else if (mFullCallback != null) {
-            fullCallback();
+        if (mResult != null) {
+            if (mPermissions.size() == mPermissionsGranted.size()) {
+                mResult.onAllGranted(mRequestCode, mPermissions);
+            } else if (mPermissions.size() == mPermissionsDenied.size()) {
+                mResult.onAllDenied(mRequestCode, mPermissions);
+            } else {
+                mResult.onDenied(mRequestCode, mPermissionsDenied, mPermissionsGranted);
+            }
         }
     }
 
+
     private void reCallback() {
-        if (mIsWaitingContinue) {
+        if (mIsWaiting) {
             callback();
         } else {
             // todo: Does multi instance make memory leak, when whe has PermissionActivity?
@@ -248,25 +311,39 @@ public final class PermissionHelper {
         }
     }
 
-    private void simpleCallBack() {
-        if (mSimpleCallback != null) {
-            if (mPermissions.size() == mPermissionsGranted.size()) {
-                mSimpleCallback.onGranted(mRequestCode);
-            } else {
-                mSimpleCallback.onDenied(mRequestCode);
-            }
-        }
+    /**
+     * Reset data, release unused memory and functional interface
+     */
+    private void finish() {
+        resetData();
     }
 
-    private void fullCallback() {
-        if (mFullCallback != null) {
-            if (mPermissions.size() == mPermissionsGranted.size()) {
-                mFullCallback.onAllGranted(mRequestCode, mPermissions);
-            } else if (mPermissions.size() == mPermissionsDenied.size()) {
-                mFullCallback.onAllDenied(mRequestCode, mPermissions);
-            } else {
-                mFullCallback.onDenied(mRequestCode, mPermissionsDenied, mPermissionsGranted);
-            }
+    public static class Builder {
+        private RationaleCallback mRational;
+        private ResultCallback mResult;
+        private GrantedBeforeBehavior mBehavior;
+
+        public Builder rational(RationaleCallback rational) {
+            this.mRational = rational;
+            return this;
+        }
+
+        public Builder result(ResultCallback result) {
+            this.mResult = result;
+            return this;
+        }
+
+        public Builder behavior(GrantedBeforeBehavior behavior) {
+            this.mBehavior = behavior;
+            return this;
+        }
+
+        public PermissionHelper build() {
+            PermissionHelper instance = new PermissionHelper();
+            instance.setGrantedBeforeBehavior(mBehavior);
+            instance.setRationale(mRational);
+            instance.setResult(mResult);
+            return instance;
         }
     }
 
@@ -350,75 +427,63 @@ public final class PermissionHelper {
         }*/
     }
 
-    private static class Singleton {
-        private static final PermissionHelper INSTANCE = new PermissionHelper();
-    }
+    // Call back -----------------------------------------------------------------------------------
 
-    public class CallBackBuilder {
-        private OnRationaleCallback mOnRationaleCallback;
-        private SimpleCallback mSimpleCallback;
-        private FullCallback mFullCallback;
-
-        public CallBackBuilder() {
-        }
-
-        public CallBackBuilder rationaleCallback(OnRationaleCallback mOnRationaleCallback) {
-            this.mOnRationaleCallback = mOnRationaleCallback;
-            return this;
-        }
-
-        public CallBackBuilder setSimpleCallback(SimpleCallback mSimpleCallback) {
-            this.mSimpleCallback = mSimpleCallback;
-            return this;
-        }
-
-        public CallBackBuilder setFullCallback(FullCallback mFullCallback) {
-            this.mFullCallback = mFullCallback;
-            return this;
-        }
-    }
-
-    // Interface -----------------------------------------------------------------------------------
-
-    public interface OnRationaleCallback {
+    public interface RationaleCallback {
 
         /**
-         * Implement class can show a dialog explain why need these permissions.
-         * And guide user to System Setting app to turn on permissions in {@code permissionsDeniedForever}.
+         * User had choose deny forever {@code permissionsDeniedForever}. So we can't request these
+         * {@code permissionsDeniedForever}
+         * Implement class should show a dialog explain why need these permissions and guide user
+         * to System Setting app to turn these {@code permissionsDeniedForever} on.
          * <br/>
-         * Or you can call {@link ShouldRequest#continuesRequest(boolean)}
-         * , that will ignore permission in {@code permissionsDeniedForever}
+         * After that, implement class should call {@link PermissionPredicate#continues(boolean)} and pass
+         * {@code true} to continues request.
+         * <br/>
+         * Or pass {@code false} to cancel request.
          *
          * @param requestCode              Request code
-         * @param shouldRequest            Hold reference to object to continue request
+         * @param permissionPredicate      Hold reference to object to continue request
          * @param permissionsDeniedForever List of permissions was denied forever
          * @param permissions              List of request permissions
          */
-        void rationale(int requestCode, @NonNull ShouldRequest shouldRequest,
+        void rationale(int requestCode, @NonNull PermissionPredicate permissionPredicate,
                        @NonNull List<String> permissionsDeniedForever, @NonNull List<String> permissions);
-
-        interface ShouldRequest {
-            void continuesRequest(boolean again);
-        }
     }
 
-    public interface SimpleCallback {
+    public abstract class SimpleResultCallback implements ResultCallback {
+
+        @Override
+        public void onAllGranted(int requestCode, @NonNull List<String> permissions) {
+            onGranted(requestCode);
+        }
+
+        @Override
+        public void onDenied(int requestCode, @NonNull List<String> permissionsDenied, @NonNull List<String> permissionsGranted) {
+            onDenied(requestCode);
+        }
+
+        @Override
+        public void onAllDenied(int requestCode, @NonNull List<String> permissions) {
+            onDenied(requestCode);
+        }
+
         /**
          * All permission request was granted
          *
          * @param requestCode Request code
          */
-        void onGranted(int requestCode);
+        abstract void onGranted(int requestCode);
 
         /**
          * At least 1 permission was denied
          *
          * @param requestCode Request code
          */
-        void onDenied(int requestCode);
+        abstract void onDenied(int requestCode);
     }
 
-    public interface FullCallback {
+    public interface ResultCallback {
         void onAllGranted(int requestCode, @NonNull List<String> permissions);
 
         void onDenied(int requestCode, @NonNull List<String> permissionsDenied, @NonNull List<String> permissionsGranted);

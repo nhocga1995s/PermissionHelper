@@ -6,7 +6,7 @@ import android.content.Context;
 public class App extends Application {
     private static App mInstance;
 
-    public static Context getAppContext(){
+    public static Context context(){
         return mInstance.getApplicationContext();
     }
 

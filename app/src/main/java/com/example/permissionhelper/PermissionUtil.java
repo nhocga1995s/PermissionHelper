@@ -1,5 +1,6 @@
 package com.example.permissionhelper;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -45,9 +46,9 @@ public class PermissionUtil {
 
     @NonNull
     public static List<String> getAppPermissions() {
-        PackageManager pm = App.getAppContext().getPackageManager();
+        PackageManager pm = App.context().getPackageManager();
         try {
-            String[] permissions = pm.getPackageInfo(App.getAppContext().getPackageName(),
+            String[] permissions = pm.getPackageInfo(App.context().getPackageName(),
                     PackageManager.GET_PERMISSIONS).requestedPermissions;
             if (permissions == null) return Collections.emptyList();
             return Arrays.asList(permissions);
@@ -59,41 +60,32 @@ public class PermissionUtil {
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public static boolean isGrantedWriteSettings() {
-        return Settings.System.canWrite(App.getAppContext());
+        return Settings.System.canWrite(App.context());
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public static boolean isGrantedDrawOverlays() {
-        return Settings.canDrawOverlays(App.getAppContext());
+        return Settings.canDrawOverlays(App.context());
     }
 
     public static void launchAppDetailsSettings() {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        intent.setData(Uri.parse("package:" + App.getAppContext().getPackageName()));
+        intent.setData(Uri.parse("package:" + App.context().getPackageName()));
         // send intent if we did not send before
         if (!isIntentAvailable(intent)) {
-            App.getAppContext().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            App.context().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         }
     }
 
     public static boolean isIntentAvailable(@NonNull final Intent intent) {
-        return App.getAppContext()
+        return App.context()
                 .getPackageManager()
                 .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
                 .size() > 0;
     }
 
-    public static boolean isAllPermissionGranted(@NonNull final String[] permissions) {
-        for (String p : permissions) {
-            if (!isPermissionGranted(p)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
+    @RequiresApi(Build.VERSION_CODES.M)
     public static boolean isPermissionGranted(@NonNull final String permission) {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
-                || ContextCompat.checkSelfPermission(App.getAppContext(), permission) == PackageManager.PERMISSION_GRANTED;
+        return ContextCompat.checkSelfPermission(App.context(), permission) == PackageManager.PERMISSION_GRANTED;
     }
 }
