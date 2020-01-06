@@ -1,4 +1,4 @@
-package com.example.permissionhelper;
+package com.example.permissionhelper.helper;
 
 import android.app.Application;
 import android.content.Context;

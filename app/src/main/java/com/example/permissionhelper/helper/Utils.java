@@ -1,6 +1,13 @@
-package com.example.permissionhelper;
+package com.example.permissionhelper.helper;
+
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 
 import androidx.annotation.NonNull;
+import androidx.versionedparcelable.NonParcelField;
 
 import java.util.List;
 
@@ -30,5 +37,12 @@ public class Utils {
             }
             return true;
         }
+    }
+
+    public static void startSetting(@NonNull Activity activity, int requestCode){
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+        Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
+        intent.setData(uri);
+        activity.startActivityForResult(intent, requestCode);
     }
 }
