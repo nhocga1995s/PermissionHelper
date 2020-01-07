@@ -1,13 +1,13 @@
 package com.example.permissionhelper.helper;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.provider.Settings;
 
 import androidx.annotation.NonNull;
-import androidx.versionedparcelable.NonParcelField;
+import androidx.fragment.app.FragmentActivity;
+import androidx.lifecycle.Lifecycle;
 
 import java.util.List;
 
@@ -39,10 +39,7 @@ public class Utils {
         }
     }
 
-    public static void startSetting(@NonNull Activity activity, int requestCode){
-        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
-        intent.setData(uri);
-        activity.startActivityForResult(intent, requestCode);
+    public static boolean isGoodTimeTrans(@NonNull FragmentActivity fragmentActivity){
+        return fragmentActivity.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED);
     }
 }

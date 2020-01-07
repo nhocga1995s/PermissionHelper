@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -61,6 +62,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         helper = new PermissionHelper.Builder(this)
                 .result(this)
                 .rational(this)
+                .explain()
                 .build();
         mButton = findViewById(R.id.button);
         mButton.setOnClickListener((v) -> {
@@ -71,6 +73,9 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 Log.e(TAG, e.getMessage());
             }
         });
+        findViewById(R.id.button1).setOnClickListener((v) ->
+                Toast.makeText(this, "Clicked", Toast.LENGTH_SHORT).show()
+        );
         Log.d(TAG, "onCreate");
     }
 
@@ -89,44 +94,15 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     @Override
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == 111) {
-            if (mPermissionPredicate != null) {
-                mPermissionPredicate.continues(requestCode, true);
-                mPermissionPredicate = null;
-            }
-        }
+        // check user enable/disable permissions in setting here
+        Log.d(TAG, "onActivityResult, code: " + requestCode);
     }
 
     @Override
     public void rationale(int requestCode, @NonNull PermissionHelper.PermissionPredicate predicate,
                           @NonNull List<String> rationale) {
-        ArraySet<CharSequence> set = PermissionUtil.getPermissionsGroupName(rationale);
-        StringBuilder builder = new StringBuilder("We need these permissions: \n");
-        for (CharSequence sequence : set) {
-            builder.append("\t\t* ").append(sequence).append("\n");
-        }
-
         mPermissionPredicate = predicate;
-        AlertDialog alertDialog = new AlertDialog.Builder(this)
-                .setMessage(builder.toString())
-                .setPositiveButton("OK", (dialog, which) -> {
-                    dialog.dismiss();
-                    if (mPermissionPredicate != null) {
-                        mPermissionPredicate.continues(requestCode, true);
-                        mPermissionPredicate = null;
-                    }
-
-                })
-                .setNegativeButton("Cancel", (dialog, which) -> {
-                    dialog.dismiss();
-                    if (mPermissionPredicate != null) {
-                        mPermissionPredicate.continues(requestCode, false);
-                        mPermissionPredicate = null;
-                    }
-                })
-                .setCancelable(true)
-                .create();
-        alertDialog.show();
+        showInfoDialog(rationale, false);
     }
 
     @Override
@@ -147,6 +123,8 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 List<Data> data = createListData(denied, State.DENIED);
                 data.addAll(createListData(deniedForever, State.DENIED_FOREVER));
                 adapter.set(data);
+
+                showInfoDialog(deniedForever, true);
                 break;
             case REQUEST_CODE_2:
                 break;
@@ -162,6 +140,8 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
                 data.addAll(createListData(deniedForever, State.DENIED_FOREVER));
                 data.addAll(createListData(granted, State.GRANTED));
                 adapter.set(data);
+
+                showInfoDialog(deniedForever, true);
                 break;
             case REQUEST_CODE_2:
                 break;
@@ -177,6 +157,44 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             dataList.add(new Data(p, state.name));
         }
         return dataList;
+    }
+
+    void showInfoDialog(List<String> permissions, final boolean isOpenSetting) {
+        if (permissions.size() == 0) return;
+        ArraySet<CharSequence> set = PermissionUtil.getPermissionsGroupName(permissions);
+        if (set.size() == 0) return;
+        StringBuilder builder = new StringBuilder(!isOpenSetting ?
+                "We need these permissions: \n"
+                : "We can't request flowing permission again, cause you had choose Never ask again.\n" +
+                "Please go to setting and enable it.\n");
+
+        for (CharSequence sequence : set) {
+            builder.append("\t\t* ").append(sequence).append("\n");
+        }
+
+        AlertDialog alertDialog = new AlertDialog.Builder(this)
+                .setMessage(builder.toString())
+                .setPositiveButton("OK", (dialog, which) -> {
+                    dialog.dismiss();
+                    if (isOpenSetting) {
+                        PermissionUtil.openAppDetailsSettings(this, 111);
+                    } else {
+                        if (mPermissionPredicate != null) {
+                            mPermissionPredicate.continues(mRequestCode, true);
+                            mPermissionPredicate = null;
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", (dialog, which) -> {
+                    dialog.dismiss();
+                    if (isOpenSetting && mPermissionPredicate != null) {
+                        mPermissionPredicate.continues(mRequestCode, false);
+                        mPermissionPredicate = null;
+                    }
+                })
+                .setCancelable(true)
+                .create();
+        alertDialog.show();
     }
 
     public static class Adapter extends RecyclerView.Adapter<Adapter.MViewHolder> {
@@ -246,15 +264,10 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         GRANTED("Granted"),
         DENIED("Denied"),
         DENIED_FOREVER("Denied forever");
-        private String name;
+        String name;
 
         State(String name) {
             this.name = name;
-        }
-
-        @NonNull
-        public String getName() {
-            return name;
         }
     }
 }

@@ -16,40 +16,11 @@ import androidx.collection.ArraySet;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 public class PermissionUtil {
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    public static boolean hasPermissionDeniedForever(@NonNull final Activity activity, @NonNull final List<String> permissions) {
-        for (String p : permissions) {
-            if (wasPermissionDeniedForever(activity, p)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    public static boolean wasPermissionDeniedForever(@NonNull final Activity activity, @NonNull final String permission) {
-        return ActivityCompat.shouldShowRequestPermissionRationale(activity, permission);
-    }
-
-    @RequiresApi(Build.VERSION_CODES.M)
-    @NonNull
-    public static List<String> getPermissionsDeniedForever(@NonNull final Activity activity, @NonNull final List<String> permissions) {
-        List<String> result = new ArrayList<>();
-        for (String p : permissions) {
-            if (wasPermissionDeniedForever(activity, p)) {
-                result.add(p);
-            }
-        }
-        return result;
-    }
-
     @NonNull
     public static List<String> getAppPermissions() {
         PackageManager pm = App.context().getPackageManager();
@@ -74,20 +45,11 @@ public class PermissionUtil {
         return Settings.canDrawOverlays(App.context());
     }
 
-    public static void launchAppDetailsSettings() {
+    public static void openAppDetailsSettings(@NonNull Activity activity, int requestCode) {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-        intent.setData(Uri.parse("package:" + App.context().getPackageName()));
-        // send intent if we did not send before
-        if (!isIntentAvailable(intent)) {
-            App.context().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        }
-    }
-
-    public static boolean isIntentAvailable(@NonNull final Intent intent) {
-        return App.context()
-                .getPackageManager()
-                .queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
-                .size() > 0;
+        Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
+        intent.setData(uri);
+        activity.startActivityForResult(intent,requestCode);
     }
 
     @RequiresApi(Build.VERSION_CODES.M)
@@ -101,7 +63,7 @@ public class PermissionUtil {
         try {
             PackageManager packageManager = App.context().getPackageManager();
             PermissionInfo permissionInfo = packageManager.getPermissionInfo(permission, 0);
-            if(permissionInfo.group!=null) {
+            if (permissionInfo.group != null) {
                 PermissionGroupInfo permissionGroupInfo = packageManager.getPermissionGroupInfo(permissionInfo.group, 0);
                 groupName = permissionGroupInfo.loadLabel(packageManager);
             }
@@ -111,13 +73,8 @@ public class PermissionUtil {
         return groupName;
     }
 
-    @RequiresApi(Build.VERSION_CODES.M)
-    public static boolean shouldRationale(@NonNull final Activity activity, @NonNull final String permission) {
-        return ActivityCompat.shouldShowRequestPermissionRationale(activity, permission);
-    }
-
     @NonNull
-    public static ArraySet<CharSequence> getPermissionsGroupName(@NonNull List<String> permissions){
+    public static ArraySet<CharSequence> getPermissionsGroupName(@NonNull List<String> permissions) {
         CharSequence c;
         ArraySet<CharSequence> set = new ArraySet<>();
         for (String p : permissions) {
@@ -127,5 +84,10 @@ public class PermissionUtil {
             }
         }
         return set;
+    }
+
+    @RequiresApi(Build.VERSION_CODES.M)
+    public static boolean shouldRationale(@NonNull final Activity activity, @NonNull final String permission) {
+        return ActivityCompat.shouldShowRequestPermissionRationale(activity, permission);
     }
 }

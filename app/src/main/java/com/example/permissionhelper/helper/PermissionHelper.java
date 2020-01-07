@@ -10,7 +10,9 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
-import androidx.fragment.app.FragmentTransaction;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleObserver;
+import androidx.lifecycle.OnLifecycleEvent;
 
 import com.example.permissionhelper.helper.exception.PermissionNotDefined;
 
@@ -50,6 +52,7 @@ public final class PermissionHelper implements Serializable {
      */
     private final List<String> mPermissionsDenied;
     private int mRequestCode;
+    private boolean mExplain;
     @NonNull
     private WeakReference<FragmentActivity> mActivityWeakReference;
 
@@ -61,7 +64,6 @@ public final class PermissionHelper implements Serializable {
     private boolean mIsWaitingRationale;
 
     // todo: Implement for write setting and draw overlay permissions
-
   /*     private static SimpleResultCallback sSimpleCallback4WriteSettings;
        private static SimpleResultCallback sSimpleCallback4DrawOverlays;
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -137,6 +139,14 @@ public final class PermissionHelper implements Serializable {
         return this.mResult;
     }
 
+    public boolean isExplain() {
+        return mExplain;
+    }
+
+    public void setExplain(boolean mExplain) {
+        this.mExplain = mExplain;
+    }
+
     //endregion
 
     public void requestPermission(int requestCode, @NonNull final String permissions) throws PermissionNotDefined {
@@ -181,12 +191,12 @@ public final class PermissionHelper implements Serializable {
         } else {
 
             FragmentActivity activity = mActivityWeakReference.get();
-            if (activity == null || activity.isFinishing()) return;
+            if (activity == null) return;
 
             for (String permission : mPermissions) {
                 if (!PermissionUtil.isPermissionGranted(permission)) {
                     mPermissionsRequest.add(permission);
-                    if (PermissionUtil.shouldRationale(activity, permission)) {
+                    if (mExplain || PermissionUtil.shouldRationale(activity, permission)) {
                         mPermissionsRationale.add(permission);
                     }
                 } else {
@@ -217,12 +227,9 @@ public final class PermissionHelper implements Serializable {
     @RequiresApi(api = Build.VERSION_CODES.M)
     private void startRequest() {
         FragmentActivity activity = mActivityWeakReference.get();
-        if (activity == null || activity.isFinishing()) return;
+        if (activity == null) return;
 
-        PermissionFragment fragment = new PermissionFragment(PermissionFragment.TYPE_RUNTIME, this);
-        FragmentTransaction trans = activity.getSupportFragmentManager().beginTransaction();
-        trans.add(fragment, PermissionFragment.TAG);
-        trans.commit();
+        PermissionFragment.start(PermissionFragment.TYPE_RUNTIME, this, activity);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
@@ -240,7 +247,7 @@ public final class PermissionHelper implements Serializable {
 
         // Request result
         FragmentActivity activity = mActivityWeakReference.get();
-        if (activity == null || activity.isFinishing()) return;
+        if (activity == null) return;
 
         String p;
         for (int i = 0; i < permissions.length; i++) {
@@ -305,6 +312,7 @@ public final class PermissionHelper implements Serializable {
         private RationaleCallback mRational;
         private ResultCallback mResult;
         private FragmentActivity mActivity;
+        private boolean mExplain;
 
         public Builder(FragmentActivity activity) {
             this.mActivity = activity;
@@ -320,10 +328,16 @@ public final class PermissionHelper implements Serializable {
             return this;
         }
 
+        public Builder explain() {
+            this.mExplain = true;
+            return this;
+        }
+
         public PermissionHelper build() {
             PermissionHelper instance = new PermissionHelper(mActivity);
             instance.setRationale(mRational);
             instance.setResult(mResult);
+            instance.setExplain(mExplain);
             return instance;
         }
     }
@@ -331,7 +345,7 @@ public final class PermissionHelper implements Serializable {
 // Inner class ---------------------------------------------------------------------------------
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    public static class PermissionFragment extends Fragment {
+    public static class PermissionFragment extends Fragment implements LifecycleObserver {
 
         public static final String TAG = PermissionFragment.class.getSimpleName();
         public static final String TYPE = "TYPE";
@@ -343,30 +357,49 @@ public final class PermissionHelper implements Serializable {
         private PermissionHelper mPermissionHelper;
         private int mType;
         private FragmentActivity mActivity;
+        private boolean mNeedRemove = false;
 
-        public void createArgument(int type, @NonNull PermissionHelper helper, @NonNull PermissionFragment fragment) {
-            Bundle bundle = new Bundle();
-            bundle.putInt(TYPE, type);
-            bundle.putSerializable(HELPER, helper);
-            fragment.setArguments(bundle);
+        public static void start(int type, @NonNull PermissionHelper helper, @NonNull FragmentActivity activity) {
+            if (Utils.isGoodTimeTrans(activity)) {
+                PermissionFragment fragment = new PermissionFragment();
+                Bundle bundle = new Bundle();
+                bundle.putInt(TYPE, type);
+                bundle.putSerializable(HELPER, helper);
+                fragment.setArguments(bundle);
+                activity.getSupportFragmentManager().beginTransaction().add(fragment, TAG).commit();
+            }
         }
 
         @Override
         public void onAttach(@NonNull Context context) {
             super.onAttach(context);
             mActivity = (FragmentActivity) context;
+            mActivity.getLifecycle().addObserver(this);
         }
 
         @Override
         public void onCreate(@Nullable Bundle savedInstanceState) {
+            if (savedInstanceState != null) {
+                // Don't do request when this instance is restore
+                if (Utils.isGoodTimeTrans(mActivity)) {
+                    removeMySelf();
+                } else {
+                    mNeedRemove = true;
+                }
+                return;
+            }
+
             Bundle bundle = getArguments();
             if (bundle != null) {
                 mType = bundle.getInt(TYPE);
                 mPermissionHelper = (PermissionHelper) bundle.getSerializable(HELPER);
             }
+
+            // We use this flag to prevent user touch to activity when this fragment request permissions
+            //todo: Watch this. This may lead activity to not touchable
             mActivity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                     | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH);
-            super.onCreate(savedInstanceState);
+            super.onCreate(null);
 
             if (mType == TYPE_RUNTIME) {
                 requestPermissions(mPermissionHelper.mPermissionsRequest.toArray(new String[0]), mPermissionHelper.mRequestCode);
@@ -381,13 +414,36 @@ public final class PermissionHelper implements Serializable {
         }
 
         @Override
-        public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                               @NonNull int[] grantResults) {
             mPermissionHelper.onRequestPermissionsResult(requestCode, permissions, grantResults);
-            FragmentTransaction trans = mActivity.getSupportFragmentManager().beginTransaction();
-            trans.remove(this);
-            trans.commit();
+            if (Utils.isGoodTimeTrans(mActivity)) {
+                removeMySelf();
+            } else {
+                mNeedRemove = true;
+            }
         }
 
+        @Override
+        public void onDestroy() {
+            super.onDestroy();
+            //todo: Watch this. This may lead activity to not touchable
+            mActivity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                    | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH);
+        }
+
+        @OnLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        public void onActivityResumed() {
+            if (mNeedRemove) {
+                removeMySelf();
+                mNeedRemove = false;
+            }
+        }
+
+        private void removeMySelf() {
+            mActivity.getSupportFragmentManager().beginTransaction().remove(this).commit();
+        }
+        
         /*@Override
         protected void onActivityResult(int requestCode, int resultCode, Intent data) {
             if (requestCode == TYPE_WRITE_SETTINGS) {
