@@ -26,6 +26,8 @@ import com.example.permissionhelper.helper.exception.PermissionNotDefined;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements PermissionHelper.RationaleCallback, PermissionHelper.ResultCallback {
@@ -106,46 +108,20 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     }
 
     @Override
-    public void onAllGranted(int requestCode, @NonNull List<String> granted) {
+    public void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted, @NonNull List<String> denied, @NonNull List<String> deniedForever) {
         switch (requestCode) {
             case REQUEST_CODE_1:
-                adapter.set(createListData(granted, State.GRANTED));
-                break;
-            case REQUEST_CODE_2:
-                break;
-        }
-    }
-
-    @Override
-    public void onAllDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> deniedForever) {
-        switch (requestCode) {
-            case REQUEST_CODE_1:
-                List<Data> data = createListData(denied, State.DENIED);
+                List<Data> data = createListData(granted, State.GRANTED);
+                data.addAll(createListData(denied, State.DENIED));
                 data.addAll(createListData(deniedForever, State.DENIED_FOREVER));
                 adapter.set(data);
 
-                showInfoDialog(deniedForever, true);
+                if (deniedForever.size() > 0) {
+                    showInfoDialog(deniedForever, true);
+                }
                 break;
             case REQUEST_CODE_2:
                 break;
-            default:
-        }
-    }
-
-    @Override
-    public void onDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> granted, @NonNull List<String> deniedForever) {
-        switch (requestCode) {
-            case REQUEST_CODE_1:
-                List<Data> data = createListData(denied, State.DENIED);
-                data.addAll(createListData(deniedForever, State.DENIED_FOREVER));
-                data.addAll(createListData(granted, State.GRANTED));
-                adapter.set(data);
-
-                showInfoDialog(deniedForever, true);
-                break;
-            case REQUEST_CODE_2:
-                break;
-            default:
         }
     }
 
@@ -230,6 +206,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
 
         public void set(@NonNull List<Data> data) {
             dataSet = data;
+            Collections.sort(dataSet);
             notifyDataSetChanged();
         }
 
@@ -250,13 +227,18 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
         }
     }
 
-    public static class Data {
+    public static class Data implements Comparable<Data>{
         String name;
         String state;
 
         public Data(@NonNull String name, @NonNull String state) {
             this.name = name;
             this.state = state;
+        }
+
+        @Override
+        public int compareTo(Data data) {
+            return this.name.compareTo(data.name);
         }
     }
 

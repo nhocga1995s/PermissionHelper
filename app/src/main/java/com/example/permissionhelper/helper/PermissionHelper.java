@@ -271,20 +271,8 @@ public final class PermissionHelper implements Serializable {
 
     private void callback() {
         if (mResult != null) {
-            int grantedSize = mPermissionsGranted.size();
-            int deniedSize = mPermissionsDenied.size();
-            int deniedForeverSize = mPermissionsDeniedForever.size();
-            int size = mPermissions.size();
-
-            if (size == grantedSize) {
-                mResult.onAllGranted(mRequestCode, mPermissionsGranted);
-
-            } else if (size == deniedSize + deniedForeverSize) {
-                mResult.onAllDenied(mRequestCode, mPermissionsDenied, mPermissionsDeniedForever);
-
-            } else {
-                mResult.onDenied(mRequestCode, mPermissionsDenied, mPermissionsGranted, mPermissionsDeniedForever);
-            }
+            mResult.onResult(mRequestCode, mPermissions, mPermissionsGranted, mPermissionsDenied,
+                    mPermissionsDeniedForever);
         }
         resetData();
     }
@@ -492,19 +480,15 @@ public final class PermissionHelper implements Serializable {
     public interface SimpleResultCallback extends ResultCallback {
 
         @Override
-        default void onAllGranted(int requestCode, @NonNull List<String> granted) {
-            onGranted(requestCode);
-        }
-
-        @Override
-        default void onAllDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> deniedForever) {
-            onDenied(requestCode);
-        }
-
-        @Override
-        default void onDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> granted,
-                              @NonNull List<String> deniedForever) {
-            onDenied(requestCode);
+        default void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
+                              @NonNull List<String> denied, @NonNull List<String> deniedForever) {
+            int size = request.size();
+            int grantedSize = granted.size();
+            if (grantedSize == size) {
+                onGranted(requestCode);
+            } else {
+                onDenied(requestCode);
+            }
         }
 
         /**
@@ -523,11 +507,7 @@ public final class PermissionHelper implements Serializable {
     }
 
     public interface ResultCallback {
-        void onAllGranted(int requestCode, @NonNull List<String> granted);
-
-        void onAllDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> deniedForever);
-
-        void onDenied(int requestCode, @NonNull List<String> denied, @NonNull List<String> granted,
-                      @NonNull List<String> deniedForever);
+        void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
+                      @NonNull List<String> denied, @NonNull List<String> deniedForever);
     }
 }
