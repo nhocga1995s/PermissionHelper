@@ -21,6 +21,7 @@ import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
@@ -311,11 +312,16 @@ public final class PermissionHelper implements Serializable {
     public static class Builder {
         private RationaleCallback mRational;
         private ResultCallback mResult;
+        @NonNull
         private FragmentActivity mActivity;
         private boolean mExplain;
 
-        public Builder(FragmentActivity activity) {
+        public Builder(@NonNull FragmentActivity activity) {
             this.mActivity = activity;
+        }
+
+        public Builder(@NonNull Fragment fragment) {
+            this.mActivity = Objects.requireNonNull(fragment.getActivity());
         }
 
         public Builder rational(RationaleCallback rational) {
