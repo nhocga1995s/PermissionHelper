@@ -15,6 +15,7 @@ import androidx.annotation.RequiresApi;
 import androidx.collection.ArraySet;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.fragment.app.Fragment;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -45,11 +46,23 @@ public class PermissionUtil {
         return Settings.canDrawOverlays(App.context());
     }
 
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public static void requestOverlayPermission(@NonNull Fragment f, int resultCode) {
+        Intent myIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
+        f.startActivityForResult(myIntent, resultCode);
+    }
+
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public static void requestWriteSettingPermission(@NonNull Fragment f, int resultCode) {
+        Intent myIntent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
+        f.startActivityForResult(myIntent, resultCode);
+    }
+
     public static void openAppDetailsSettings(@NonNull Activity activity, int requestCode) {
         Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
         Uri uri = Uri.fromParts("package", activity.getPackageName(), null);
         intent.setData(uri);
-        activity.startActivityForResult(intent,requestCode);
+        activity.startActivityForResult(intent, requestCode);
     }
 
     @RequiresApi(Build.VERSION_CODES.M)

@@ -1,10 +1,13 @@
 package com.example.permissionhelper.helper;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.WindowManager;
 
+import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -17,6 +20,8 @@ import androidx.lifecycle.OnLifecycleEvent;
 import com.example.permissionhelper.helper.exception.PermissionNotDefined;
 
 import java.io.Serializable;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,9 +32,23 @@ import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
 public final class PermissionHelper implements Serializable {
 
+    @IntDef({TYPE_WRITE_SETTINGS, TYPE_DRAW_OVERLAYS})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface SpecialPermissions {
+    }
+
+    @IntDef({TYPE_RUNTIME, TYPE_WRITE_SETTINGS, TYPE_DRAW_OVERLAYS})
+    @Retention(RetentionPolicy.SOURCE)
+    public @interface Type {
+    }
+
+    public static final int DEFAULT_REQUEST_CODE = 0;
+    public static final int TYPE_RUNTIME = 0x01;
+    public static final int TYPE_WRITE_SETTINGS = 0x02;
+    public static final int TYPE_DRAW_OVERLAYS = 0x03;
+
     private static final int INIT_SIZE = 40;
     private static final List<String> APP_PERMISSIONS = PermissionUtil.getAppPermissions();
-    public static final int DEFAULT_REQUEST_CODE = 0;
 
     /**
      * Contains permissions param
@@ -54,60 +73,17 @@ public final class PermissionHelper implements Serializable {
     private final List<String> mPermissionsDenied;
     private int mRequestCode;
     private boolean mExplain;
+    private @SpecialPermissions
+    int mSpecialType;
     @NonNull
     private WeakReference<FragmentActivity> mActivityWeakReference;
 
     // Call back
     private RationaleCallback mRationale;
-    private ResultCallback mResult;
+    private BaseResultCallBack mResult;
 
     // State
     private boolean mIsWaitingRationale;
-
-    // todo: Implement for write setting and draw overlay permissions
-  /*     private static SimpleResultCallback sSimpleCallback4WriteSettings;
-       private static SimpleResultCallback sSimpleCallback4DrawOverlays;
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public static void requestWriteSettings(final SimpleResultCallback callback) {
-        if (isGrantedWriteSettings()) {
-            if (callback != null) callback.onGranted();
-            return;
-        }
-        sSimpleCallback4WriteSettings = callback;
-        PermissionActivity.start(Utils.getApp(), PermissionActivity.TYPE_WRITE_SETTINGS);
-    }
-
-    @TargetApi(Build.VERSION_CODES.M)
-    private static void startWriteSettingsActivity(final Activity activity, final int requestCode) {
-        Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS);
-        intent.setData(Uri.parse("package:" + Utils.getApp().getPackageName()));
-        if (!isIntentAvailable(intent)) {
-            launchAppDetailsSettings();
-            return;
-        }
-        activity.startActivityForResult(intent, requestCode);
-    }
-
-    @RequiresApi(api = Build.VERSION_CODES.M)
-    public static void requestDrawOverlays(final SimpleResultCallback callback) {
-        if (isGrantedDrawOverlays()) {
-            if (callback != null) callback.onGranted();
-            return;
-        }
-        sSimpleCallback4DrawOverlays = callback;
-        PermissionActivity.start(Utils.getApp(), PermissionActivity.TYPE_DRAW_OVERLAYS);
-    }
-
-    @TargetApi(Build.VERSION_CODES.M)
-    private static void startOverlayPermissionActivity(final Activity activity, final int requestCode) {
-        Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION);
-        intent.setData(Uri.parse("package:" + Utils.getApp().getPackageName()));
-        if (!isIntentAvailable(intent)) {
-            launchAppDetailsSettings();
-            return;
-        }
-        activity.startActivityForResult(intent, requestCode);
-    }*/
 
     private PermissionHelper(@NonNull FragmentActivity activity) {
         mPermissions = new ArrayList<>(INIT_SIZE);
@@ -131,12 +107,12 @@ public final class PermissionHelper implements Serializable {
         return this.mRationale;
     }
 
-    public void setResult(ResultCallback result) {
+    public void setResult(BaseResultCallBack result) {
         this.mResult = result;
     }
 
     @Nullable
-    public ResultCallback getResult() {
+    public BaseResultCallBack getResult() {
         return this.mResult;
     }
 
@@ -162,7 +138,33 @@ public final class PermissionHelper implements Serializable {
         }
         mRequestCode = requestCode;
         mPermissions.addAll(permissions);
-        filter();
+        filterRuntime();
+    }
+
+    public void requestSpecialPermission(int requestCode, @SpecialPermissions int type) throws PermissionNotDefined {
+        String p = getSpecialPermission(type);
+        if (p == null
+                || !APP_PERMISSIONS.contains(p)) {
+            throw new PermissionNotDefined("Some request permissions did not defined in manifest");
+        } else {
+            resetData();
+        }
+
+        mRequestCode = requestCode;
+        mSpecialType = type;
+        filterSpecial();
+    }
+
+    @Nullable
+    private String getSpecialPermission(@SpecialPermissions int type) {
+        switch (type) {
+            case TYPE_WRITE_SETTINGS:
+                return Manifest.permission.WRITE_SETTINGS;
+            case TYPE_DRAW_OVERLAYS:
+                return Manifest.permission.SYSTEM_ALERT_WINDOW;
+            default:
+                return null;
+        }
     }
 
     /**
@@ -177,6 +179,7 @@ public final class PermissionHelper implements Serializable {
         mPermissionsDenied.clear();
         mRequestCode = DEFAULT_REQUEST_CODE;
         mIsWaitingRationale = false;
+        mSpecialType = -1;
     }
 
     /**
@@ -184,13 +187,13 @@ public final class PermissionHelper implements Serializable {
      * If permission was granted, put them in {@code mPermissionsGranted} list.
      * If they not, put them in {@code mPermissionsRequest} list to request later.
      */
-    private void filter() {
+    private void filterRuntime() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             // Don't need request
             mPermissionsGranted.addAll(mPermissions);
-            callback();
+            callback(TYPE_RUNTIME);
         } else {
-
+            // Filter
             FragmentActivity activity = mActivityWeakReference.get();
             if (activity == null) return;
 
@@ -213,7 +216,7 @@ public final class PermissionHelper implements Serializable {
     private void checkList() {
         if (mPermissionsRequest.isEmpty()) {
             // All permissions was granted
-            callback();
+            callback(TYPE_RUNTIME);
         } else if (mRationale != null
                 && mPermissionsRationale.size() > 0) {
             // Rationale
@@ -221,22 +224,49 @@ public final class PermissionHelper implements Serializable {
             mIsWaitingRationale = true;
         } else {
             // Request
-            startRequest();
+            startRequest(TYPE_RUNTIME);
+        }
+    }
+
+    private void filterSpecial() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            // Don't need request
+            callback(mSpecialType);
+        } else {
+            boolean isGranted = false;
+            switch (mSpecialType) {
+                case TYPE_WRITE_SETTINGS:
+                    isGranted = PermissionUtil.isGrantedWriteSettings();
+                    break;
+                case TYPE_DRAW_OVERLAYS:
+                    isGranted = PermissionUtil.isGrantedDrawOverlays();
+                    break;
+            }
+
+            String p = getSpecialPermission(mSpecialType);
+            if (isGranted) callback(mSpecialType);
+            else if (p != null && mExplain && mRationale != null) {
+                mRationale.rationale(mRequestCode, this::continues, Collections.singletonList(p));
+                mIsWaitingRationale = true;
+            } else {
+                // Need Request
+                startRequest(mSpecialType);
+            }
         }
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
-    private void startRequest() {
+    private void startRequest(@Type int type) {
         FragmentActivity activity = mActivityWeakReference.get();
         if (activity == null) return;
-
-        PermissionFragment.start(PermissionFragment.TYPE_RUNTIME, this, activity);
+        PermissionFragment.start(type, this, activity);
     }
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     private void cStartRequest() {
         if (mIsWaitingRationale) {
-            startRequest();
+            if (mSpecialType == -1) startRequest(TYPE_RUNTIME);
+            else startRequest(mSpecialType);
         }
     }
 
@@ -266,20 +296,48 @@ public final class PermissionHelper implements Serializable {
                 }
             }
         }
-        callback();
+        callback(TYPE_RUNTIME);
     }
 
-    private void callback() {
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    private void onSpecialPermissions(int requestCode) {
+        if (requestCode != mRequestCode) return;
+        callback(mSpecialType);
+    }
+
+    private void callback(@Type int type) {
         if (mResult != null) {
-            mResult.onResult(mRequestCode, mPermissions, mPermissionsGranted, mPermissionsDenied,
-                    mPermissionsDeniedForever);
+            boolean isGranted;
+            switch (type) {
+                case TYPE_RUNTIME:
+                    mResult.onRuntimeResult(mRequestCode, mPermissions, mPermissionsGranted, mPermissionsDenied,
+                            mPermissionsDeniedForever);
+                    break;
+                case TYPE_DRAW_OVERLAYS:
+                    isGranted = true;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        isGranted = PermissionUtil.isGrantedDrawOverlays();
+                    }
+                    mResult.onSpecialResult(mRequestCode, TYPE_DRAW_OVERLAYS, isGranted);
+                    break;
+                case TYPE_WRITE_SETTINGS:
+                    isGranted = true;
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        isGranted = PermissionUtil.isGrantedWriteSettings();
+                    }
+                    mResult.onSpecialResult(mRequestCode, TYPE_WRITE_SETTINGS, isGranted);
+                    break;
+            }
+
         }
         resetData();
     }
 
+
     private void cCallback() {
         if (mIsWaitingRationale) {
-            callback();
+            if (mSpecialType == -1) callback(TYPE_RUNTIME);
+            else callback(mSpecialType);
         }
     }
 
@@ -299,7 +357,7 @@ public final class PermissionHelper implements Serializable {
 
     public static class Builder {
         private RationaleCallback mRational;
-        private ResultCallback mResult;
+        private BaseResultCallBack mResult;
         @NonNull
         private FragmentActivity mActivity;
         private boolean mExplain;
@@ -317,7 +375,7 @@ public final class PermissionHelper implements Serializable {
             return this;
         }
 
-        public Builder result(ResultCallback result) {
+        public Builder result(BaseResultCallBack result) {
             this.mResult = result;
             return this;
         }
@@ -344,16 +402,13 @@ public final class PermissionHelper implements Serializable {
         public static final String TAG = PermissionFragment.class.getSimpleName();
         public static final String TYPE = "TYPE";
         public static final String HELPER = "HELPER";
-        private static final int TYPE_RUNTIME = 0x01;
-        /*public static final int TYPE_WRITE_SETTINGS = 0x02;
-               public static final int TYPE_DRAW_OVERLAYS = 0x03;*/
 
         private PermissionHelper mPermissionHelper;
         private int mType;
         private FragmentActivity mActivity;
         private boolean mNeedRemove = false;
 
-        public static void start(int type, @NonNull PermissionHelper helper, @NonNull FragmentActivity activity) {
+        public static void start(@Type int type, @NonNull PermissionHelper helper, @NonNull FragmentActivity activity) {
             if (Utils.isGoodTimeTrans(activity)) {
                 PermissionFragment fragment = new PermissionFragment();
                 Bundle bundle = new Bundle();
@@ -397,24 +452,10 @@ public final class PermissionHelper implements Serializable {
 
             if (mType == TYPE_RUNTIME) {
                 requestPermissions(mPermissionHelper.mPermissionsRequest.toArray(new String[0]), mPermissionHelper.mRequestCode);
-            }
-            /*else if (byteExtra == TYPE_WRITE_SETTINGS) {
-                super.onCreate(savedInstanceState);
-                startWriteSettingsActivity(this, TYPE_WRITE_SETTINGS);
-            } else if (byteExtra == TYPE_DRAW_OVERLAYS) {
-                super.onCreate(savedInstanceState);
-                startOverlayPermissionActivity(this, TYPE_DRAW_OVERLAYS);
-            }*/
-        }
-
-        @Override
-        public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                               @NonNull int[] grantResults) {
-            mPermissionHelper.onRequestPermissionsResult(requestCode, permissions, grantResults);
-            if (Utils.isGoodTimeTrans(mActivity)) {
-                removeMySelf();
-            } else {
-                mNeedRemove = true;
+            } else if (mType == TYPE_WRITE_SETTINGS) {
+                PermissionUtil.requestWriteSettingPermission(this, TYPE_WRITE_SETTINGS);
+            } else if (mType == TYPE_DRAW_OVERLAYS) {
+                PermissionUtil.requestOverlayPermission(this, TYPE_DRAW_OVERLAYS);
             }
         }
 
@@ -437,33 +478,28 @@ public final class PermissionHelper implements Serializable {
         private void removeMySelf() {
             mActivity.getSupportFragmentManager().beginTransaction().remove(this).commit();
         }
-        
-        /*@Override
-        protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-            if (requestCode == TYPE_WRITE_SETTINGS) {
-                if (sSimpleCallback4WriteSettings == null) return;
-                if (isGrantedWriteSettings()) {
-                    sSimpleCallback4WriteSettings.onGranted();
-                } else {
-                    sSimpleCallback4WriteSettings.onDenied();
-                }
-                sSimpleCallback4WriteSettings = null;
-            } else if (requestCode == TYPE_DRAW_OVERLAYS) {
-                if (sSimpleCallback4DrawOverlays == null) return;
-                Utils.runOnUiThreadDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (isGrantedDrawOverlays()) {
-                            sSimpleCallback4DrawOverlays.onGranted();
-                        } else {
-                            sSimpleCallback4DrawOverlays.onDenied();
-                        }
-                        sSimpleCallback4DrawOverlays = null;
-                    }
-                }, 100);
+
+        @Override
+        public void onActivityResult(int requestCode, int resultCode, Intent data) {
+            super.onActivityResult(requestCode, resultCode, data);
+            mPermissionHelper.onSpecialPermissions(requestCode);
+            if (Utils.isGoodTimeTrans(mActivity)) {
+                removeMySelf();
+            } else {
+                mNeedRemove = true;
             }
-            finish();
-        }*/
+        }
+
+        @Override
+        public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                               @NonNull int[] grantResults) {
+            mPermissionHelper.onRequestPermissionsResult(requestCode, permissions, grantResults);
+            if (Utils.isGoodTimeTrans(mActivity)) {
+                removeMySelf();
+            } else {
+                mNeedRemove = true;
+            }
+        }
     }
 
 // Call back -----------------------------------------------------------------------------------
@@ -477,11 +513,18 @@ public final class PermissionHelper implements Serializable {
         void continues(int requestCode, boolean continues);
     }
 
-    public interface SimpleResultCallback extends ResultCallback {
+    public interface SpecialCallback extends BaseResultCallBack {
+        @Override
+        default void onRuntimeResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
+                                     @NonNull List<String> denied, @NonNull List<String> deniedForever) {
+        }
+    }
+
+    public interface SimpleRuntimeCallback extends RuntimeCallBack {
 
         @Override
-        default void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
-                              @NonNull List<String> denied, @NonNull List<String> deniedForever) {
+        default void onRuntimeResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
+                                     @NonNull List<String> denied, @NonNull List<String> deniedForever) {
             int size = request.size();
             int grantedSize = granted.size();
             if (grantedSize == size) {
@@ -506,8 +549,16 @@ public final class PermissionHelper implements Serializable {
         void onDenied(int requestCode);
     }
 
-    public interface ResultCallback {
-        void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
-                      @NonNull List<String> denied, @NonNull List<String> deniedForever);
+    public interface RuntimeCallBack extends BaseResultCallBack {
+        @Override
+        default void onSpecialResult(int requestCode, int type, boolean hasPermission) {
+        }
+    }
+
+    public interface BaseResultCallBack {
+        void onRuntimeResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted,
+                             @NonNull List<String> denied, @NonNull List<String> deniedForever);
+
+        void onSpecialResult(int requestCode, int type, boolean isGranted);
     }
 }

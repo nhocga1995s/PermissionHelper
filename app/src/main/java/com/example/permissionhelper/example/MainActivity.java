@@ -30,7 +30,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
-public class MainActivity extends AppCompatActivity implements PermissionHelper.RationaleCallback, PermissionHelper.ResultCallback {
+public class MainActivity extends AppCompatActivity implements PermissionHelper.RationaleCallback, PermissionHelper.BaseResultCallBack {
     public static final String TAG = MainActivity.class.getSimpleName();
     private static final List<String> PERMISSIONS = Arrays.asList(
             Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -108,7 +108,7 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
     }
 
     @Override
-    public void onResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted, @NonNull List<String> denied, @NonNull List<String> deniedForever) {
+    public void onRuntimeResult(int requestCode, @NonNull List<String> request, @NonNull List<String> granted, @NonNull List<String> denied, @NonNull List<String> deniedForever) {
         switch (requestCode) {
             case REQUEST_CODE_1:
                 List<Data> data = createListData(granted, State.GRANTED);
@@ -123,6 +123,11 @@ public class MainActivity extends AppCompatActivity implements PermissionHelper.
             case REQUEST_CODE_2:
                 break;
         }
+    }
+
+    @Override
+    public void onSpecialResult(int requestCode, int type, boolean isGranted) {
+
     }
 
     @NonNull
